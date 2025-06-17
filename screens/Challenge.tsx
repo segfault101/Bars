@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useRequireAuth } from '../hooks/useRequireAuth';
 
 type RootStackParamList = {
   Swipe: { mode: 'freestyle' | 'longform' };
@@ -10,6 +11,7 @@ type RootStackParamList = {
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Swipe'>;
 
 export default function Challenge() {
+  useRequireAuth();
   const navigation = useNavigation<NavigationProp>();
 
   const handleSelectMode = (mode: 'freestyle' | 'longform') => {
@@ -37,7 +39,7 @@ export default function Challenge() {
       >
         <Text style={styles.emoji}>🌊</Text>
         <View style={styles.cardText}>
-          <Text style={styles.cardTitle}>Longform Poetic Assault</Text>
+          <Text style={styles.cardTitle}>Longform Lyrical Assault</Text>
           <Text style={styles.cardDesc}>
             12 hours total battle length.{"\n"}Write 16 bars then pass the mic to the opponent
           </Text>

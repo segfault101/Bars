@@ -16,6 +16,7 @@ import {
 import { RouteProp, useRoute, useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import uuid from 'react-native-uuid';
+import { useRequireAuth } from '../hooks/useRequireAuth';
 
 const placeholderAvatar = 'https://placehold.co/100x100/png';
 
@@ -32,6 +33,7 @@ type Round = {
 };
 
 export default function BattleRoom() {
+  useRequireAuth();
   const route = useRoute<RouteProp<BattleRoomParams, 'BattleRoom'>>();
   const navigation = useNavigation<any>();
   const { mode, opponent } = route.params;
@@ -78,7 +80,9 @@ export default function BattleRoom() {
       }
 
       setBattleId(id);
-      setIsMyTurn((data?.id || rounds.length) % 2 !== 0);
+      setIsMyTurn(true); // Always let user go first
+
+      //setIsMyTurn((data?.id || rounds.length) % 2 !== 0);
     };
 
     initBattle();
@@ -96,6 +100,7 @@ export default function BattleRoom() {
 
       if (error) console.error('Load rounds error:', error);
       else setRounds(data || []);
+      setIsMyTurn((data?.length || 0) % 2 === 0);
       setLoading(false);
     };
 

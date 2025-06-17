@@ -2,107 +2,108 @@ import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   TouchableOpacity,
-  Image,
+  StyleSheet,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { useRoute, RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
+import { useRequireAuth } from '../hooks/useRequireAuth';
+
+type RootStackParamList = {
+  Voting: { battleId: string };
+};
+
+type Vote = {
+  id: string;
+  battle_id: string;
+  voted_for: 'you' | 'opponent';
+};
+
+type Round = {
+  author: 'you' | 'opponent';
+  bars: string;
+};
 
 export default function VotingScreen() {
-  const route = useRoute<RouteProp<{ Voting: { battleId: string } }, 'Voting'>>();
+  useRequireAuth();
+  const route = useRoute<RouteProp<RootStackParamList, 'Voting'>>();
   const { battleId } = route.params;
 
-  const [loading, setLoading] = useState(true);
-  const [votedFor, setVotedFor] = useState<string | null>(null);
-  const [tally, setTally] = useState<{ you: number; opponent: number }>({ you: 0, opponent: 0 });
-    const [playerNames, setPlayerNames] = useState<{ you: string; opponent: string }>({ you: 'You', opponent: 'Opponent' });
+  const [rounds, setRounds] = useState<Round[]>([]);
+  const [youVotes, setYouVotes] = useState(0);
+  const [opponentVotes, setOpponentVotes] = useState(0);
+  const [votedFor, setVotedFor] = useState<'you' | 'opponent' | null>(null);
   const [votingOpen, setVotingOpen] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<any>(null);
 
-  const handleVote = async (choice: 'you' | 'opponent') => {
-    if (votedFor && votedFor === choice) return;
+  useEffect(() => {
+    const loadUser = async () => {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error || !session?.user) {
+        console.error('User fetch error:', error);
+        setUser(false); // false = unauthenticated
+      } else {
+        setUser(session.user);
+      }
+    };
 
-    if (votedFor && votedFor !== choice) {
-      const { data: user } = await supabase.auth.getUser();
-      const userId = user?.user?.id;
-      if (!userId) return;
+    loadUser();
+  }, []);
 
-      // Delete previous vote
-      const { error: deleteError } = await supabase
-        .from('votes')
-        .delete()
-        .eq('battle_id', battleId)
-        .eq('user_id', userId);
-
-      if (deleteError) return;
-
-      setTally((prev) => {
-        const updated = { ...prev, [votedFor]: Math.max(0, prev[votedFor] - 1) };
-        
-        return updated;
-      });
-    }
-
-    const { data: user } = await supabase.auth.getUser();
-    const userId = user?.user?.id;
-    if (!userId) return;
-
-    const { data: existingVotes } = await supabase
-      .from('votes')
-      .select('id')
-      .eq('battle_id', battleId)
-      .eq('user_id', userId);
-
-    if (existingVotes && existingVotes.length > 0) {
-      setVotedFor(choice); // visual feedback only
+  useEffect(() => {
+    if (user === null) return; // still loading user
+    if (!user) {
+      Alert.alert('Sign-in required', 'Please sign in to vote.');
+      setLoading(false);
       return;
     }
 
-    const { error } = await supabase
-      .from('votes')
-      .insert({ battle_id: battleId, winner: choice, user_id: userId });
+    const fetchVotesAndRounds = async () => {
+      setLoading(true);
 
-    if (!error) {
-      setVotedFor(choice);
-      setTally((prev) => {
-        const updated = { ...prev, [choice]: prev[choice] + 1 };
-        let current = prev[choice];
-        const interval = setInterval(() => {
-          current++;
-          setAnimatedTally((curr) => ({ ...curr, [choice]: current }));
-          if (current >= updated[choice]) clearInterval(interval);
-        }, 50);
-        return updated;
-      });
-    }
-  };
+      const { data: roundsData, error: roundsErr } = await supabase
+        .from('rounds')
+        .select('author, bars')
+        .eq('battle_id', battleId)
+        .order('created_at', { ascending: true });
 
-  useEffect(() => {
-    const fetchVotes = async () => {
-      const [{ data: voteData, error: voteError }, { data: battleData, error: battleError }] = await Promise.all([
-        supabase.from('votes').select('winner').eq('battle_id', battleId),
-        supabase.from('battles').select('player1, player2').eq('id', battleId).single(),
-      ]);
+      if (roundsErr) console.error(roundsErr);
+      else setRounds(roundsData || []);
 
-      if (voteData && !voteError) {
-        const count = { you: 0, opponent: 0 };
-        for (const vote of voteData) {
-          if (vote.winner === 'you') count.you++;
-          else if (vote.winner === 'opponent') count.opponent++;
+      const { data: voteData, error: voteErr } = await supabase
+        .from('votes')
+        .select('*')
+        .eq('battle_id', battleId);
+
+      if (voteErr) console.error(voteErr);
+      else {
+        const you = voteData?.filter((v) => v.voted_for === 'you').length || 0;
+        const opp = voteData?.filter((v) => v.voted_for === 'opponent').length || 0;
+        setYouVotes(you);
+        setOpponentVotes(opp);
+
+        const existing = voteData.find((v) => v.id === user.id);
+        if (existing) {
+          setVotedFor(existing.voted_for);
         }
-        setTally(count);
+
+        if (voteData.length >= 20) setVotingOpen(false);
       }
 
-      if (battleData && !battleError) {
-        setPlayerNames({ you: battleData.player1, opponent: battleData.player2 });
-      }
+      const { data: battle, error: battleErr } = await supabase
+        .from('battles')
+        .select('ended_at')
+        .eq('id', battleId)
+        .single();
 
-      if (battleData?.ended_at) {
-        const endTime = new Date(battleData.ended_at);
-        const now = new Date();
-        const oneDayLater = new Date(endTime.getTime() + 24 * 60 * 60 * 1000);
-        if (now > oneDayLater || (voteData && voteData.length >= 20)) {
+      if (!battleErr && battle?.ended_at) {
+        const endedTime = new Date(battle.ended_at).getTime();
+        const now = new Date().getTime();
+        const diff = now - endedTime;
+        if (diff >= 24 * 60 * 60 * 1000) {
           setVotingOpen(false);
         }
       }
@@ -110,120 +111,167 @@ export default function VotingScreen() {
       setLoading(false);
     };
 
-    fetchVotes();
-  }, [battleId]);
+    fetchVotesAndRounds();
+  }, [battleId, user]);
+
+  const handleVote = async (side: 'you' | 'opponent') => {
+    if (!user) return;
+
+    if (votedFor === side) {
+      // Undo the vote
+      const { error } = await supabase
+        .from('votes')
+        .delete()
+        .eq('id', user.id)
+        .eq('battle_id', battleId);
+
+      if (error) {
+        console.error('Undo vote error:', error);
+        Alert.alert('Undo Vote Failed');
+      } else {
+        setVotedFor(null);
+        if (side === 'you') setYouVotes((v) => v - 1);
+        else setOpponentVotes((v) => v - 1);
+      }
+    } else {
+      // Cast or switch vote
+      const { error } = await supabase.from('votes').upsert({
+        id: user.id,
+        battle_id: battleId,
+        voted_for: side,
+      });
+
+      if (error) {
+        console.error('Vote error:', error);
+        Alert.alert('Vote Failed');
+      } else {
+        // If switching votes, decrease the previous count
+        if (votedFor === 'you') setYouVotes((v) => v - 1);
+        else if (votedFor === 'opponent') setOpponentVotes((v) => v - 1);
+
+        // Increase the new vote count
+        if (side === 'you') setYouVotes((v) => v + 1);
+        else setOpponentVotes((v) => v + 1);
+
+        setVotedFor(side);
+      }
+    }
+  };
+
 
   if (loading) {
     return (
-      <View style={styles.container}>
-        <ActivityIndicator color="#fff" />
+      <View style={styles.center}>
+        <ActivityIndicator color="#ff6600" />
+        <Text style={styles.loadingText}>Loading battle...</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Upvote your winner</Text>
+      <Text style={styles.header}>VOTE</Text>
 
-      <TouchableOpacity style={[styles.row, votedFor === 'you' && styles.highlightRow]} onPress={() => votingOpen && handleVote('you')}>
-  <Image
-    source={{ uri: 'https://placehold.co/100x100/png' }}
-    style={styles.avatar}
-  />
-  <Text style={styles.username}>@{playerNames.you}</Text>
-  <View style={styles.voteBox}>
-    <Text style={styles.arrow}>⬆</Text>
-    <Text style={styles.count}>{tally.you}</Text>
-  </View>
-</TouchableOpacity>
+      <TouchableOpacity
+        style={[
+          styles.voteBox,
+          votedFor === 'you' && styles.voted,
+          !votingOpen && youVotes >= opponentVotes && styles.winner,
+        ]}
+        onPress={() => handleVote('you')}
+        disabled={!votingOpen}
+      >
+        <Text style={styles.voteLabel}>You</Text>
+        <Text style={styles.voteCount}>{youVotes}</Text>
+      </TouchableOpacity>
 
-      <TouchableOpacity style={[styles.row, votedFor === 'opponent' && styles.highlightRow]} onPress={() => votingOpen && handleVote('opponent')}>
-  <Image
-    source={{ uri: 'https://placehold.co/100x100/png' }}
-    style={styles.avatar}
-  />
-  <Text style={styles.username}>@{playerNames.opponent}</Text>
-  <View style={styles.voteBox}>
-    <Text style={styles.arrow}>⬆</Text>
-    <Text style={styles.count}>{tally.opponent}</Text>
-  </View>
-</TouchableOpacity>
+      <TouchableOpacity
+        style={[
+          styles.voteBox,
+          votedFor === 'opponent' && styles.voted,
+          !votingOpen && opponentVotes > youVotes && styles.winner,
+        ]}
+        onPress={() => handleVote('opponent')}
+        disabled={!votingOpen}
+      >
+        <Text style={styles.voteLabel}>Opponent</Text>
+        <Text style={styles.voteCount}>{opponentVotes}</Text>
+      </TouchableOpacity>
+
       {!votingOpen ? (
-        <Text style={styles.thanksText}>Voting is closed</Text>
-      ) : votedFor && (
-        <Text style={styles.thanksText}>Thanks for voting!</Text>
+        <Text style={styles.closed}>Voting is closed</Text>
+      ) : votedFor ? (
+        <Text style={styles.thanks}>Thanks for voting!</Text>
+      ) : (
+        <Text style={styles.tip}>Tap to vote</Text>
       )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  highlightRow: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 12,
-    padding: 8,
-  },
   container: {
     flex: 1,
     backgroundColor: '#000',
-    padding: 24,
+    padding: 30,
     justifyContent: 'center',
   },
-  title: {
+  header: {
     color: '#fff',
-    fontSize: 24,
+    fontSize: 32,
     fontWeight: 'bold',
     textAlign: 'center',
-    marginBottom: 30,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 12,
-  },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    marginRight: 10,
-  },
-  username: {
-    color: '#fff',
-    fontSize: 18,
-    flex: 1,
+    marginBottom: 40,
   },
   voteBox: {
-    backgroundColor: '#3B82F6',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    backgroundColor: '#111',
     borderRadius: 12,
+    paddingVertical: 30,
+    marginBottom: 20,
     alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#333',
   },
-  arrow: {
-    color: '#fff',
-    fontSize: 16,
+  voteLabel: {
+    color: '#aaa',
+    fontSize: 18,
+    marginBottom: 6,
   },
-  count: {
+  voteCount: {
+    fontSize: 28,
     color: '#fff',
-    fontSize: 16,
     fontWeight: 'bold',
   },
-  upvoteButton: {
-    marginTop: 32,
-    backgroundColor: '#3B82F6',
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
+  voted: {
+    borderColor: '#ff6600',
+    backgroundColor: '#1a1a1a',
   },
-  upvoteText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
+  winner: {
+    borderColor: '#00ff88',
   },
-  thanksText: {
-    color: '#0f0',
-    fontSize: 18,
+  thanks: {
+    color: '#ff6600',
     textAlign: 'center',
-    marginTop: 20,
+    marginTop: 10,
+  },
+  tip: {
+    color: '#888',
+    textAlign: 'center',
+    marginTop: 10,
+  },
+  closed: {
+    color: '#999',
+    textAlign: 'center',
+    marginTop: 10,
+  },
+  center: {
+    flex: 1,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    color: '#fff',
   },
 });
