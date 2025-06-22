@@ -12,12 +12,14 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { decode } from 'base64-arraybuffer';
+import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 
 const defaultAvatar =
   'https://ui-avatars.com/api/?name=User&background=random&size=128';
 
 export default function Profile() {
+  const navigation = useNavigation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
@@ -49,10 +51,36 @@ export default function Profile() {
     };
 
     checkUser();
+
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        setMode('signIn');
+      }
+      if (event === 'SIGNED_IN' && session?.user) {
+        setMode('profile');
+      }
+    });
+
+    return () => {
+      listener?.subscription.unsubscribe();
+    };
   }, []);
 
   const handleSignUp = async () => {
     setLoading(true);
+
+    const { data: existingUser } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('username', username.trim())
+      .maybeSingle();
+
+    if (existingUser) {
+      Alert.alert('Username Taken', 'Please choose a different username.');
+      setLoading(false);
+      return;
+    }
+
     const { error } = await supabase.auth.signUp({ email, password });
 
     if (error) {
@@ -97,6 +125,18 @@ export default function Profile() {
   const handleSave = async () => {
     if (!userId || !username.trim()) return;
 
+    const { data: existingUser } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('username', username.trim())
+      .neq('id', userId)
+      .maybeSingle();
+
+    if (existingUser) {
+      Alert.alert('Username Taken', 'Please choose a different username.');
+      return;
+    }
+
     const { error } = await supabase.from('profiles').upsert({
       id: userId,
       email,
@@ -131,9 +171,8 @@ export default function Profile() {
 
     if (!result.canceled && result.assets.length > 0 && userId) {
       const original = result.assets[0];
-
-      // Crop to square
       const size = Math.min(original.width!, original.height!);
+
       const manipResult = await ImageManipulator.manipulateAsync(
         original.uri,
         [
@@ -226,6 +265,11 @@ export default function Profile() {
           <TouchableOpacity style={styles.button} onPress={handleSignIn}>
             <Text style={styles.buttonText}>Sign In</Text>
           </TouchableOpacity>
+
+          <TouchableOpacity onPress={() => navigation.navigate('ResetPassword')}>
+            <Text style={styles.link}>Forgot Password?</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity onPress={() => setMode('signUp')}>
             <Text style={styles.link}>Don't have an account? Sign up</Text>
           </TouchableOpacity>
@@ -289,7 +333,9 @@ const styles = StyleSheet.create({
   avatar: {
     width: 100,
     height: 100,
-    borderRadius: 20,
+    borderRadius: 50,
+    borderWidth: 4,
+    borderColor: '#FFD700',
     alignSelf: 'center',
     marginBottom: 10,
   },

@@ -1,27 +1,32 @@
+// RootNavigator.tsx
+import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import BottomTabs from './BottomTabs';
-import Swipe from '../screens/Swipe';
 import BattleRoom from '../screens/BattleRoom';
-import SupabaseTest from '../screens/SupabaseTest';
 import VotingScreen from '../screens/VotingScreen';
-import Profile from '../screens/Profile';
+import ResetPassword from '../screens/ResetPassword';
+import NewPassword from '../screens/NewPassword';
+import Swipe from '../screens/Swipe';
+import ChallengeConfirmScreen from '../screens/ChallengeConfirmScreen';
+import Battles from "../screens/Battles";
 
-export type RootStackParamList = {
-  Tabs: undefined;
-  Swipe: { mode: 'freestyle' | 'longform' };
-  BattleRoom: { mode: 'freestyle' | 'longform'; opponent: string };
-};
-
-const Stack = createNativeStackNavigator<RootStackParamList>();
+const Stack = createNativeStackNavigator();
 
 export default function RootNavigator() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="Tabs" component={BottomTabs} />
-      <Stack.Screen name="Swipe" component={Swipe} />
+      {/* Main app with bottom tabs */}
+      <Stack.Screen name="MainTabs" component={BottomTabs} />
+
+      {/* Special screens that sit outside tabs */}
       <Stack.Screen name="BattleRoom" component={BattleRoom} />
       <Stack.Screen name="Voting" component={VotingScreen} />
-      <Stack.Screen name="Profile" component={Profile} />
+      <Stack.Screen name="ResetPassword" component={ResetPassword} />
+      <Stack.Screen name="NewPassword" component={NewPassword} />
+      <Stack.Screen name="Swipe" component={Swipe} />
+      <Stack.Screen name="ChallengeConfirm" component={ChallengeConfirmScreen} />
+      <Stack.Screen name="Battles" component={Battles} />
+
     </Stack.Navigator>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,26 +6,41 @@ import {
   Animated,
   PanResponder,
   Dimensions,
+  Image,
 } from 'react-native';
 import { useRoute, RouteProp, useNavigation } from '@react-navigation/native';
+import { supabase } from '../lib/supabase';
 
 type Mode = 'freestyle' | 'longform';
 type RouteParams = { Swipe: { mode: Mode } };
 const SCREEN_WIDTH = Dimensions.get('window').width;
-
-const dummyOpponents = [
-  { name: 'Lil Byte', bar: 'I spit logic like circuits, break code in your verses.' },
-  { name: 'MC Syntax', bar: 'I debug rhymes while you lag behind in lines.' },
-  { name: 'VerseBot', bar: 'Machine-learned fire, no cap in my wire.' },
-];
 
 export default function Swipe() {
   const route = useRoute<RouteProp<RouteParams, 'Swipe'>>();
   const { mode } = route.params;
   const navigation = useNavigation<any>();
 
+  const [opponents, setOpponents] = useState<
+    { username: string; avatar_url: string | null }[]
+  >([]);
   const [index, setIndex] = useState(0);
   const pan = useRef(new Animated.ValueXY()).current;
+
+  useEffect(() => {
+    const fetchOpponents = async () => {
+      const { data: session } = await supabase.auth.getUser();
+      const currentUserId = session.user?.id;
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('username, avatar_url')
+        .neq('id', currentUserId); // exclude self
+
+      if (!error) setOpponents(data || []);
+    };
+
+    fetchOpponents();
+  }, []);
 
   const rotate = pan.x.interpolate({
     inputRange: [-SCREEN_WIDTH, 0, SCREEN_WIDTH],
@@ -53,16 +68,14 @@ export default function Swipe() {
       duration: 300,
       useNativeDriver: false,
     }).start(() => {
-      const opponent = dummyOpponents[index]?.name;
+      const opponent = opponents[index];
 
       if (direction === 'right') {
-        console.log(`Challenged: ${opponent} in ${mode} mode`);
-        navigation.navigate('BattleRoom' as never, {
+        navigation.navigate('ChallengeConfirm', {
           mode,
-          opponent:card.name,
-        } as never);
-      } else {
-        console.log(`Skipped: ${opponent}`);
+          opponent: opponent.username,
+          avatar_url: opponent.avatar_url,
+        });
       }
 
       pan.setValue({ x: 0, y: 0 });
@@ -72,8 +85,7 @@ export default function Swipe() {
 
   const panResponder = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gesture) =>
-        Math.abs(gesture.dx) > 10,
+      onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 10,
       onPanResponderMove: (_, gesture) => {
         pan.setValue({ x: gesture.dx, y: gesture.dy });
       },
@@ -85,7 +97,7 @@ export default function Swipe() {
     })
   ).current;
 
-  const card = dummyOpponents[index];
+  const card = opponents[index];
   if (!card) {
     return (
       <View style={styles.container}>
@@ -104,8 +116,11 @@ export default function Swipe() {
         {...panResponder.panHandlers}
         style={[styles.card, cardStyle]}
       >
-        <Text style={styles.name}>{card.name}</Text>
-        <Text style={styles.bar}>"{card.bar}"</Text>
+        {card.avatar_url && (
+          <Image source={{ uri: card.avatar_url }} style={styles.avatar} />
+        )}
+        <Text style={styles.name}>{card.username}</Text>
+        <Text style={styles.bar}>"Ready to battle?"</Text>
       </Animated.View>
     </View>
   );
@@ -131,9 +146,18 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 20,
     justifyContent: 'center',
+    alignItems: 'center',
     shadowColor: '#fff',
     shadowOpacity: 0.2,
     shadowRadius: 8,
+  },
+  avatar: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 3,
+    borderColor: '#FFD700',
+    marginBottom: 16,
   },
   name: {
     color: 'white',

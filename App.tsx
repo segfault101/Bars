@@ -1,3 +1,4 @@
+import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import RootNavigator from './navigation/RootNavigator';
 
@@ -10,7 +11,8 @@ const linking = {
       Challenge: 'challenge',
       BattleRoom: 'battleroom',
       Voting: 'voting/:battleId',
-      // add others if needed
+      ResetPassword: 'reset-password',
+      NewPassword: 'reset-password', // both point to same deep link
     },
   },
 };
